@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "FoodBox",
+    "slug": "foodbox",
+    "version": "1.0.0",
+    "scheme": "foodbox",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": ["**/*"],
+    "ios": { "supportsTablet": true },
+    "android": { "package": "com.foodbox.app" },
+    "plugins": ["expo-router"]
+  }
+}
