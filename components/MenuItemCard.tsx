@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
+import { getFileUrl } from '@/services/api';
 
 export interface MenuItem {
   id: number;
@@ -42,7 +43,7 @@ export default function MenuItemCard({ item, quantity, onAdd, onRemove }: Props)
       </View>
       <View style={styles.right}>
         {item.image ? (
-          <Image source={{ uri: item.image }} style={styles.image} resizeMode="cover" />
+          <Image source={{ uri: getFileUrl(item.image) }} style={styles.image} resizeMode="cover" />
         ) : (
           <View style={styles.imagePlaceholder}>
             <Text style={{ fontSize: 28 }}>🍛</Text>

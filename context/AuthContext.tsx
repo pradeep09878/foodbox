@@ -20,6 +20,8 @@ export interface Vendor {
   description?: string;
   is_open: boolean;
   rating: number;
+  latitude?: number;
+  longitude?: number;
 }
 
 interface AuthState {
@@ -39,6 +41,7 @@ interface AuthContextValue extends AuthState {
     email: string;
     phone: string;
     password: string;
+    otp: string;
     address?: string;
     cuisine_type?: string;
     description?: string;
@@ -117,6 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     email: string;
     phone: string;
     password: string;
+    otp: string;
     address?: string;
     cuisine_type?: string;
     description?: string;

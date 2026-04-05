@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Alert,
-  TextInput, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform,
+  TextInput, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import { useAuth } from '@/context/AuthContext';
-import api from '@/services/api';
+import api, { getFileUrl } from '@/services/api';
 import { Colors } from '@/constants/Colors';
 
 export default function VendorProfileScreen() {
@@ -20,6 +22,8 @@ export default function VendorProfileScreen() {
     description: vendor?.description || '',
   });
   const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [savingLocation, setSavingLocation] = useState(false);
 
   function setField(key: string, value: string) { setForm(f => ({ ...f, [key]: value })); }
 
@@ -54,6 +58,64 @@ export default function VendorProfileScreen() {
     }
   }
 
+  async function handleLogoUpload() {
+    Alert.alert('Upload Logo', 'Choose source', [
+      {
+        text: 'Camera', onPress: async () => {
+          const { status } = await ImagePicker.requestCameraPermissionsAsync();
+          if (status !== 'granted') { Alert.alert('Permission required', 'Allow camera access to take a photo.'); return; }
+          const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.7 });
+          if (!result.canceled && result.assets?.length) await doUploadLogo(result.assets[0]);
+        },
+      },
+      {
+        text: 'Gallery', onPress: async () => {
+          const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (status !== 'granted') { Alert.alert('Permission required', 'Allow access to your photo library.'); return; }
+          const result = await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.7 });
+          if (!result.canceled && result.assets?.length) await doUploadLogo(result.assets[0]);
+        },
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
+
+  async function doUploadLogo(asset: ImagePicker.ImagePickerAsset) {
+    setUploadingLogo(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', { uri: asset.uri, type: asset.mimeType || 'image/jpeg', name: asset.fileName || 'logo.jpg' } as any);
+      await api.post('/vendor/upload-logo', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      await refreshVendor();
+    } catch (err: any) {
+      Alert.alert('Upload failed', err.message);
+    } finally {
+      setUploadingLogo(false);
+    }
+  }
+
+  async function handleSetLocation() {
+    setSavingLocation(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Allow location access to set your restaurant location.');
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      await api.put('/vendor/profile', {
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      });
+      await refreshVendor();
+      Alert.alert('Location saved', 'Your restaurant location has been updated.');
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Could not get location');
+    } finally {
+      setSavingLocation(false);
+    }
+  }
+
   function getInitials(n?: string) {
     if (!n) return '?';
     return n.trim().split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2);
@@ -73,11 +135,22 @@ export default function VendorProfileScreen() {
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          {/* Avatar */}
+          {/* Avatar / Logo */}
           <View style={styles.avatarSection}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{getInitials(vendor?.name)}</Text>
-            </View>
+            <TouchableOpacity style={styles.avatarWrapper} onPress={handleLogoUpload} disabled={uploadingLogo}>
+              {vendor?.logo ? (
+                <Image source={{ uri: getFileUrl(vendor.logo) }} style={styles.logoImage} resizeMode="cover" />
+              ) : (
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>{getInitials(vendor?.name)}</Text>
+                </View>
+              )}
+              <View style={styles.cameraOverlay}>
+                {uploadingLogo
+                  ? <ActivityIndicator size="small" color={Colors.white} />
+                  : <Ionicons name="camera" size={16} color={Colors.white} />}
+              </View>
+            </TouchableOpacity>
             <Text style={styles.vendorName}>{vendor?.name || 'Restaurant'}</Text>
             <Text style={styles.vendorEmail}>{vendor?.email}</Text>
             <View style={[styles.openBadge, { backgroundColor: vendor?.is_open ? Colors.success : Colors.error }]}>
@@ -122,6 +195,21 @@ export default function VendorProfileScreen() {
               <InfoRow icon="star-outline" label="Rating" value={vendor?.rating && vendor.rating > 0 ? vendor.rating.toFixed(1) + ' / 5' : 'No ratings yet'} />
               <View style={styles.divider} />
               <InfoRow icon="document-text-outline" label="Description" value={vendor?.description || '—'} />
+              <View style={styles.divider} />
+              <View style={styles.infoRow}>
+                <Ionicons name="navigate-outline" size={18} color={Colors.primary} />
+                <View style={styles.infoText}>
+                  <Text style={styles.infoLabel}>Location (auto from address)</Text>
+                  <Text style={styles.infoValue}>
+                    {vendor?.latitude ? `${Number(vendor.latitude).toFixed(4)}, ${Number(vendor.longitude).toFixed(4)}` : 'Not set — save your address to detect'}
+                  </Text>
+                </View>
+                <TouchableOpacity style={styles.setLocBtn} onPress={handleSetLocation} disabled={savingLocation}>
+                  {savingLocation
+                    ? <ActivityIndicator size="small" color={Colors.primary} />
+                    : <Text style={styles.setLocBtnText}>Use GPS</Text>}
+                </TouchableOpacity>
+              </View>
             </View>
           )}
 
@@ -159,8 +247,11 @@ const styles = StyleSheet.create({
   editBtnText: { fontSize: 14, color: Colors.primary, fontWeight: '700' },
   scroll: { padding: 20, gap: 16 },
   avatarSection: { alignItems: 'center', paddingVertical: 16, gap: 8 },
-  avatar: { width: 80, height: 80, borderRadius: 40, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
+  avatarWrapper: { position: 'relative', width: 84, height: 84 },
+  avatar: { width: 84, height: 84, borderRadius: 42, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
+  logoImage: { width: 84, height: 84, borderRadius: 42 },
   avatarText: { fontSize: 30, fontWeight: '800', color: Colors.white },
+  cameraOverlay: { position: 'absolute', bottom: 0, right: 0, width: 26, height: 26, borderRadius: 13, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: Colors.white },
   vendorName: { fontSize: 22, fontWeight: '800', color: Colors.text },
   vendorEmail: { fontSize: 14, color: Colors.textLight },
   openBadge: { paddingHorizontal: 14, paddingVertical: 5, borderRadius: 20 },
@@ -181,6 +272,8 @@ const styles = StyleSheet.create({
   saveBtn: { flex: 1, backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
   disabledBtn: { opacity: 0.7 },
   saveBtnText: { color: Colors.white, fontSize: 15, fontWeight: '700' },
+  setLocBtn: { borderWidth: 1.5, borderColor: Colors.primary, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
+  setLocBtnText: { fontSize: 12, color: Colors.primary, fontWeight: '700' },
   appInfo: { alignItems: 'center' },
   appVersion: { fontSize: 13, color: Colors.textMuted },
   logoutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: Colors.error, borderRadius: 14, paddingVertical: 15 },

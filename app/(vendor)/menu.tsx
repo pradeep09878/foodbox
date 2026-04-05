@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet, Switch,
-  Modal, TextInput, Alert, ActivityIndicator, ScrollView,
+  Modal, TextInput, Alert, ActivityIndicator, ScrollView, Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import api from '@/services/api';
+import * as ImagePicker from 'expo-image-picker';
+import api, { getFileUrl } from '@/services/api';
 import { Colors } from '@/constants/Colors';
 
 interface Category { id: number; name: string; }
@@ -28,6 +29,7 @@ export default function VendorMenuScreen() {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [catName, setCatName] = useState('');
   const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const loadMenu = useCallback(async () => {
     setLoading(true);
@@ -45,6 +47,39 @@ export default function VendorMenuScreen() {
   useEffect(() => { loadMenu(); }, []);
 
   function setField(key: string, value: any) { setForm(f => ({ ...f, [key]: value })); }
+
+  async function pickAndUploadImage() {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Allow access to your photo library to upload an image.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (result.canceled || !result.assets?.length) return;
+    const asset = result.assets[0];
+    setUploadingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', {
+        uri: asset.uri,
+        type: asset.mimeType || 'image/jpeg',
+        name: asset.fileName || 'item.jpg',
+      } as any);
+      const res = await api.post('/vendor/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setField('image', res.data.url);
+    } catch (err: any) {
+      Alert.alert('Upload failed', err.message);
+    } finally {
+      setUploadingImage(false);
+    }
+  }
 
   function openAddItem() {
     setEditingItem(null);
@@ -243,8 +278,25 @@ export default function VendorMenuScreen() {
               ))}
             </ScrollView>
 
-            <Text style={styles.label}>Image URL</Text>
-            <TextInput style={styles.input} value={form.image} onChangeText={v => setField('image', v)} placeholder="https://..." placeholderTextColor={Colors.textMuted} autoCapitalize="none" />
+            <Text style={styles.label}>Item Image</Text>
+            <TouchableOpacity style={styles.imagePicker} onPress={pickAndUploadImage} disabled={uploadingImage}>
+              {uploadingImage ? (
+                <ActivityIndicator size="large" color={Colors.primary} />
+              ) : form.image ? (
+                <Image source={{ uri: getFileUrl(form.image) }} style={styles.imagePreview} resizeMode="cover" />
+              ) : (
+                <View style={styles.imagePlaceholder}>
+                  <Ionicons name="camera-outline" size={32} color={Colors.textMuted} />
+                  <Text style={styles.imagePlaceholderText}>Tap to upload image</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            {form.image ? (
+              <TouchableOpacity style={styles.removeImageBtn} onPress={() => setField('image', '')}>
+                <Ionicons name="trash-outline" size={14} color={Colors.error} />
+                <Text style={styles.removeImageText}>Remove image</Text>
+              </TouchableOpacity>
+            ) : null}
 
             <View style={styles.toggleRow}>
               <Text style={styles.toggleLabel}>Vegetarian</Text>
@@ -331,4 +383,10 @@ const styles = StyleSheet.create({
   smallModalBtns: { flexDirection: 'row', gap: 10, marginTop: 16 },
   cancelBtn: { flex: 1, borderWidth: 1.5, borderColor: Colors.border, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
   cancelBtnText: { fontSize: 15, color: Colors.text, fontWeight: '600' },
+  imagePicker: { height: 160, borderRadius: 12, borderWidth: 1.5, borderColor: Colors.border, borderStyle: 'dashed', backgroundColor: Colors.background, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  imagePreview: { width: '100%', height: '100%' },
+  imagePlaceholder: { alignItems: 'center', gap: 8 },
+  imagePlaceholderText: { fontSize: 13, color: Colors.textMuted, fontWeight: '500' },
+  removeImageBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6, alignSelf: 'flex-end' },
+  removeImageText: { fontSize: 12, color: Colors.error, fontWeight: '600' },
 });
